@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="style.css">
+<style>
+  body { width: 360px; }
+  .site { border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px 8px; margin-top: 10px; }
+  .site h3 { margin: 6px 0 4px; font-size: 13px; color: var(--fg); }
+  .site .pin { border-top: 1px dashed var(--line); margin-top: 6px; padding-top: 4px; }
+  .sub { margin-left: 22px; }
+</style>
+</head>
+<body>
+  <header>
+    <strong>AIO 구매 도우미</strong>
+    <label class="switch big" title="전체 켜기/끄기"><input type="checkbox" id="enabled"><span></span></label>
+  </header>
+  <p id="master-note" class="note"></p>
+  <label class="row small"><input type="checkbox" id="dryRun"> 연습 모드 (누르지 않고 빨간 테두리만)</label>
+
+  <div id="sites"></div>
+
+  <div class="site">
+    <h3>디스코드</h3>
+    <label class="row"><input type="checkbox" id="discordEnabled"> 알림 링크를 새 창으로 열기</label>
+    <p id="discordState" class="note"></p>
+  </div>
+
+  <section>
+    <h3>기록 <button id="clearLog" class="link">지우기</button></h3>
+    <ol id="log"></ol>
+  </section>
+
+  <footer><a href="options.html" target="_blank">설정 자세히</a></footer>
+  <script src="popup.js" type="module"></script>
+</body>
+</html>
