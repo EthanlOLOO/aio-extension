@@ -328,6 +328,8 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
           addLog("error", `진짜 클릭 실패: ${e.message}`, "debugger");
           return { ok: false };
         }
+      case "checkUpdate": return checkUpdate(msg.force);
+      case "openTab": return chrome.tabs.create({ url: msg.url });
       case "discordStatus": return discord.status();
       case "discordRestart": return discord.restart();
       case "testOpen": return openLink(msg.url, "시험");
@@ -337,6 +339,47 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   work.then(reply, (e) => reply({ error: String(e && e.message) }));
   return true;
 });
+
+// ── 새 버전 알림 ────────────────────────────────────────
+//
+// 수동 설치(개발자 모드)라 크롬이 알아서 업데이트하지 않는다. 친구들이 옛 버전을 계속 쓰지 않게
+// 깃허브 릴리스를 가끔 확인해서 팝업에 알려 준다. 여섯 시간에 한 번만 묻는다 (남의 서버다).
+
+const REPO = "EthanlOLOO/aio-extension";
+const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
+
+/** "0.3.10" > "0.3.9" 를 제대로 보게 숫자로 견준다. → a 가 b 보다 새것인가 */
+function newerThan(a, b) {
+  const x = String(a).split("."), y = String(b).split(".");
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (Number(x[i]) || 0) - (Number(y[i]) || 0);
+    if (d) return d > 0;
+  }
+  return false;
+}
+
+async function checkUpdate(force = false) {
+  const here = chrome.runtime.getManifest().version;
+  const saved = (await chrome.storage.local.get("update")).update;
+  if (!force && saved && Date.now() - saved.at < UPDATE_EVERY_MS) {
+    return { ...saved, here, newer: newerThan(saved.latest, here) };
+  }
+  try {
+    const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+      headers: { accept: "application/vnd.github+json" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
+    const body = await res.json();
+    const latest = String(body.tag_name || "").replace(/^v/, "");
+    const update = { at: Date.now(), latest, url: body.html_url || `https://github.com/${REPO}/releases` };
+    await chrome.storage.local.set({ update });
+    return { ...update, here, newer: newerThan(latest, here) };
+  } catch (e) {
+    return { here, latest: saved && saved.latest, url: `https://github.com/${REPO}/releases`,
+             newer: !!(saved && newerThan(saved.latest, here)), error: String(e.message || e) };
+  }
+}
 
 // ── 링크 열기 ───────────────────────────────────────────
 

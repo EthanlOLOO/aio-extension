@@ -126,8 +126,23 @@ $("discordEnabled").onchange = async (e) => {
 $("clearLog").onclick = async () => { await send({ type: "clearLog" }); renderLog(); };
 chrome.storage.onChanged.addListener((c, area) => { if (area === "session" && c.log) renderLog(); });
 
+/** 새 버전이 있으면 아래에 알려 준다. 수동 설치라 크롬이 알아서 업데이트하지 않는다. */
+async function renderUpdate() {
+  const got = await send({ type: "checkUpdate" });
+  if (!got || !got.newer) return;
+  const a = $("update");
+  a.hidden = false;
+  a.textContent = `새 버전 ${got.latest} 있음 (지금 ${got.here}) — 받기`;
+  a.className = "note warn";
+  a.onclick = (e) => {
+    e.preventDefault();
+    send({ type: "openTab", url: got.url });
+  };
+}
+
 settings = await send({ type: "getSettings" });
 renderMaster();
 renderSites();
 renderDiscord();
 renderLog();
+renderUpdate();
