@@ -22,10 +22,19 @@
   <div id="sites"></div>
 
   <div class="site">
-    <h3>디스코드</h3>
-    <label class="row"><input type="checkbox" id="discordEnabled"> 알림 링크를 새 창으로 열기</label>
-    <p id="discordState" class="note"></p>
+    <h3>디스코드 모니터링</h3>
+    <label class="row"><input type="checkbox" id="monitorEnabled"> 알림을 익스텐션 안에서 감시 (링크는 열지 않음)</label>
+    <p id="monitorState" class="note"></p>
+    <div class="bar" style="display:flex; gap:8px; align-items:center; margin-top:4px">
+      <button id="monitorReconnect" class="link">다시 연결</button>
+      <span class="note" style="flex:1"></span>
+    </div>
   </div>
+
+  <section>
+    <h3>잡힌 알림 <button id="clearMonEvents" class="link">지우기</button></h3>
+    <ol id="monEvents"></ol>
+  </section>
 
   <section>
     <h3>기록 <button id="clearLog" class="link">지우기</button></h3>

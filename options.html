@@ -21,10 +21,10 @@
   <h1>AIO 구매 도우미 설정</h1>
   <p class="note">켜고 끄는 것은 툴바의 팝업에서 합니다. 여기서는 세부 값을 고칩니다.</p>
 
-  <h2>디스코드 알림</h2>
+  <h2>디스코드 모니터링</h2>
   <p class="note">
-    봇 만드는 법은 <code>node/README-discord-open.md</code> 와 같습니다 (MESSAGE CONTENT INTENT 를 꼭 켜세요).
-    Node 판 <code>run-discord-open.bat</code> 을 같이 켜 두면 링크가 두 번 열리니 하나만 쓰세요.
+    링크를 <b>열지 않고</b>, 조건에 맞는 알림을 익스텐션 안에서 잡아 팝업의 "잡힌 알림" 목록에 남깁니다.
+    봇 만드는 법은 전과 같습니다 (MESSAGE CONTENT INTENT 를 꼭 켜세요).
   </p>
   <label class="f" for="token">봇 토큰</label>
   <input type="password" id="token" autocomplete="off">
@@ -34,23 +34,19 @@
       <input type="text" id="channels">
     </div>
     <div>
-      <label class="f" for="reopen">같은 주소 다시 열기까지 (초)</label>
-      <input type="text" id="reopen" inputmode="numeric">
-    </div>
-    <div>
-      <label class="f" for="keywords">이 말이 든 알림만 (쉼표로)</label>
+      <label class="f" for="keywords">이 말이 든 알림만 잡기 (쉼표로)</label>
       <input type="text" id="keywords">
     </div>
     <div>
-      <label class="f" for="skip">이 말이 든 알림은 안 열기 (쉼표로)</label>
+      <label class="f" for="skip">이 말이 든 알림은 건너뛰기 (쉼표로)</label>
       <input type="text" id="skip">
     </div>
   </div>
-  <label class="row"><input type="checkbox" id="webhookOnly"> 웹훅이 보낸 알림만 (사람이 붙인 링크는 안 열기)</label>
-  <label class="row"><input type="checkbox" id="newWindow"> 새 창으로 (끄면 지금 창의 새 탭)</label>
+  <label class="row"><input type="checkbox" id="webhookOnly"> 웹훅이 보낸 알림만 잡기 (사람이 붙인 링크는 건너뛰기)</label>
+  <label class="row"><input type="checkbox" id="linkOnly"> 링크가 든 알림만 잡기</label>
   <div class="bar">
-    <button id="testOpen">열기 시험 (example.com)</button>
     <button id="reconnect">다시 연결</button>
+    <button id="clearEvents">잡힌 알림 비우기</button>
     <span id="dstate" class="note"></span>
   </div>
 

@@ -7,23 +7,23 @@ const list = (s) => s.split(",").map((x) => x.trim()).filter(Boolean);
 let settings = await send({ type: "getSettings" });
 
 function fillForm() {
-  const d = settings.discord;
+  const d = settings.monitor;
   $("token").value = d.token;
   $("channels").value = d.channels.join(", ");
-  $("reopen").value = d.reopenSeconds;
   $("keywords").value = d.keywords.join(", ");
   $("skip").value = d.skipKeywords.join(", ");
   $("webhookOnly").checked = d.webhookOnly;
-  $("newWindow").checked = d.newWindow;
+  $("linkOnly").checked = d.linkOnly;
   $("npayMatch").value = settings.pins.npay.match.join(", ");
   $("lpayMatch").value = settings.pins.lpay.match.join(", ");
   $("trusted").value = settings.trustedClick;
   $("flows").value = JSON.stringify(settings.flows, null, 2);
 }
 
-async function showDiscord() {
-  const st = await send({ type: "discordStatus" });
-  $("dstate").textContent = `${st.state}${st.detail ? " — " + st.detail : ""}`;
+async function showMonitor() {
+  const st = await send({ type: "monitorStatus" });
+  const label = { on: "감시 중", connecting: "연결 중…", retry: "다시 연결하는 중", fatal: "멈춤", off: "꺼짐" }[st.state] || st.state;
+  $("dstate").textContent = `${label}${st.detail ? " — " + st.detail : ""} · 잡은 것 ${st.caught || 0}건`;
 }
 
 $("save").onclick = async () => {
@@ -44,26 +44,25 @@ $("save").onclick = async () => {
     $("saved").className = "note err";
     return;
   }
-  const oldToken = settings.discord.token;
-  settings.discord = {
-    ...settings.discord,
+  const oldToken = settings.monitor.token;
+  settings.monitor = {
+    ...settings.monitor,
     token: $("token").value.trim(),
     channels: list($("channels").value),
-    reopenSeconds: Number($("reopen").value) || 60,
     keywords: list($("keywords").value),
     skipKeywords: list($("skip").value),
     webhookOnly: $("webhookOnly").checked,
-    newWindow: $("newWindow").checked,
+    linkOnly: $("linkOnly").checked,
   };
   settings.pins.npay.match = list($("npayMatch").value);
   settings.pins.lpay.match = list($("lpayMatch").value);
   settings.trustedClick = $("trusted").value;
   settings.flows = flows;
   await chrome.storage.local.set({ settings });
-  if (oldToken !== settings.discord.token) await send({ type: "discordRestart" });
+  if (oldToken !== settings.monitor.token) await send({ type: "monitorRestart" });
   $("saved").textContent = `저장했습니다 ${new Date().toTimeString().slice(0, 8)}`;
   $("saved").className = "note on";
-  setTimeout(showDiscord, 1500);
+  setTimeout(showMonitor, 1500);
 };
 
 $("defaults").onclick = () => {
@@ -74,8 +73,11 @@ $("resetFlows").onclick = async () => {
   await send({ type: "resetFlows" });
   $("saved").textContent = "진행 상태를 처음으로 돌렸습니다";
 };
-$("testOpen").onclick = () => send({ type: "testOpen", url: "https://example.com" });
-$("reconnect").onclick = async () => { await send({ type: "discordRestart" }); setTimeout(showDiscord, 1500); };
+$("reconnect").onclick = async () => { await send({ type: "monitorRestart" }); setTimeout(showMonitor, 1500); };
+$("clearEvents").onclick = async () => {
+  await send({ type: "monitorClear" });
+  $("saved").textContent = "잡힌 알림을 비웠습니다";
+};
 
 fillForm();
-showDiscord();
+showMonitor();
