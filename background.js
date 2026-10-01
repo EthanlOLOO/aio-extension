@@ -4,9 +4,10 @@
  *   - 설정을 들고 있고, 흐름이 몇 번째 단계까지 갔는지 쥐고 있다
  *   - 결제수단별 비밀번호를 내준다 (기본은 브라우저를 끄면 지워지는 session 저장소)
  *   - 페이지가 자바스크립트 클릭을 무시할 때 chrome.debugger 로 진짜 클릭을 낸다
- *   - 디스코드 봇으로 알림을 받아 링크를 새 창으로 연다 (node/src/discord-open 과 같은 일)
+ *   - 디스코드 봇으로 알림을 받아 익스텐션 안에서 모니터링한다 (링크를 열지 않고 목록에 쌓는다)
  */
 import { DEFAULT_SETTINGS } from "./defaults.js";
+import { monitor, wireMonitor, clearEvents } from "./monitor.js";
 
 // ── 설정 ───────────────────────────────────────────────
 
@@ -65,9 +66,12 @@ function upgrade(saved) {
     ...D, ...saved,
     flows, pins,
     trustedClick: saved.trustedClick || (saved.pin && saved.pin.trusted) || D.trustedClick,
-    discord: { ...D.discord, ...saved.discord },
+    monitor: { ...D.monitor, ...(saved.monitor || saved.discord) },
   };
   delete out.pin;
+  delete out.discord;         // 0.4 부터 디스코드 "링크 오프너"는 없다. settings.monitor 만 쓴다.
+  delete out.monitor.newWindow; // 예전 오프너의 "새 창으로 열기"는 모니터링에 쓸모가 없다.
+  delete out.monitor.reopenSeconds;
   return out;
 }
 
@@ -330,9 +334,10 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         }
       case "checkUpdate": return checkUpdate(msg.force);
       case "openTab": return chrome.tabs.create({ url: msg.url });
-      case "discordStatus": return discord.status();
-      case "discordRestart": return discord.restart();
-      case "testOpen": return openLink(msg.url, "시험");
+      case "monitorStatus": return monitor.status();
+      case "monitorRestart": return monitor.restart();
+      case "monitorEvents": return chrome.storage.session.get("monEvents").then((g) => g.monEvents || []);
+      case "monitorClear": return clearEvents();
     }
     return null;
   })();
@@ -381,241 +386,25 @@ async function checkUpdate(force = false) {
   }
 }
 
-// ── 링크 열기 ───────────────────────────────────────────
-
-async function openLink(url, why) {
-  const settings = await getSettings();
-  if (settings.discord.newWindow) {
-    const win = await chrome.windows.create({ url, focused: true, state: "normal" });
-    await chrome.windows.update(win.id, { focused: true, drawAttention: true });
-  } else {
-    const [win] = await chrome.windows.getAll({ windowTypes: ["normal"] });
-    const tab = await chrome.tabs.create({ url, active: true, windowId: win && win.id });
-    await chrome.windows.update(tab.windowId, { focused: true, drawAttention: true });
-  }
-  addLog("ok", `열었습니다: ${url}  ← ${why}`, "디스코드");
-}
-
-// ── 디스코드 ───────────────────────────────────────────
+// ── 디스코드 모니터링 ────────────────────────────────────
 //
-// node/src/discord-open/gateway.ts 를 옮겼다. 다른 점:
-//   서비스 워커는 30초 동안 할 일이 없으면 잠든다. 웹소켓에 오가는 것이 있으면 깨어 있으므로,
-//   심장박동을 디스코드가 달라는 간격(약 41초)보다 짧게 20초마다 보낸다.
-//   그래도 잠들 수 있어서, 1분 알람이 깨워 끊겼으면 다시 붙인다.
+// gateway·기록·팝업 UI 는 monitor.js 에 있다. 링크 오프너(discord-open)는 0.4 에서 없앴고,
+// 잡힌 알림은 익스텐션 안(팝업의 "디스코드 모니터링" 목록)에서만 보여 준다.
 
-const GATEWAY = "wss://gateway.discord.gg/?v=10&encoding=json";
-const INTENTS = (1 << 0) | (1 << 9) | (1 << 15);
-const FATAL = {
-  4004: "봇 토큰이 틀렸습니다.",
-  4013: "인텐트 값이 잘못되었습니다.",
-  4014: "MESSAGE CONTENT INTENT 가 꺼져 있습니다. 개발자 포털 → Bot 에서 켜 주세요.",
-};
-
-const URL_RE = /https?:\/\/[^\s<>()"'`\]]+/g;
-const urlsIn = (t) => (t && t.match(URL_RE) || []).map((u) => u.replace(/[.,;:!?]+$/, ""));
-const notDiscord = (u) => {
-  try {
-    return !/(^|\.)(discord\.com|discordapp\.com|discordapp\.net|discord\.gg)$/i.test(new URL(u).hostname);
-  } catch {
-    return false;
-  }
-};
-
-function linkOf(msg) {
-  const found = [];
-  for (const e of msg.embeds || []) if (e.url) found.push(e.url);
-  found.push(...urlsIn(msg.content));
-  for (const e of msg.embeds || []) {
-    found.push(...urlsIn(e.description));
-    for (const f of e.fields || []) found.push(...urlsIn(f.value));
-  }
-  return found.find(notDiscord) || null;
-}
-
-function textOf(msg) {
-  const parts = [msg.content || ""];
-  for (const e of msg.embeds || []) {
-    parts.push(e.title || "", e.description || "", (e.footer && e.footer.text) || "");
-    for (const f of e.fields || []) parts.push(f.name || "", f.value || "");
-  }
-  return parts.join("\n").toLowerCase();
-}
-
-const discord = {
-  ws: null,
-  beat: null,
-  acked: true,
-  seq: null,
-  sessionId: null,
-  resumeUrl: null,
-  state: "off",
-  detail: "",
-  opened: new Map(),
-
-  status() {
-    return { state: this.state, detail: this.detail };
-  },
-
-  async restart() {
-    this.close(1000);
-    this.sessionId = null;
-    this.resumeUrl = null;
-    this.seq = null;
-    await chrome.storage.session.remove("gw");
-    await this.ensure();
-    return this.status();
-  },
-
-  close(code) {
-    clearInterval(this.beat);
-    this.beat = null;
-    if (this.ws) {
-      const ws = this.ws;
-      this.ws = null;
-      try { ws.close(code); } catch { /* 이미 닫힘 */ }
-    }
-  },
-
-  /** 켜져 있어야 하는데 연결이 없으면 붙는다. 알람·시작·설정 변경 때 부른다. */
-  async ensure() {
-    const settings = await getSettings();
-    const cfg = settings.discord;
-    if (!settings.enabled || !cfg.enabled || !cfg.token) {
-      this.close(1000);
-      this.state = "off";
-      this.detail = !cfg.token ? "봇 토큰이 없습니다" : "꺼져 있습니다";
-      return;
-    }
-    if (this.ws && this.ws.readyState <= WebSocket.OPEN) return;
-    if (this.state === "fatal") return;
-
-    const saved = (await chrome.storage.session.get("gw")).gw;
-    if (saved && !this.sessionId) Object.assign(this, saved);
-    const resuming = !!(this.sessionId && this.resumeUrl);
-    const ws = new WebSocket(resuming ? `${this.resumeUrl}/?v=10&encoding=json` : GATEWAY);
-    this.ws = ws;
-    this.state = "connecting";
-    this.detail = "";
-    const token = cfg.token.trim().replace(/^Bot\s+/i, "");
-
-    ws.onmessage = (ev) => {
-      let p;
-      try { p = JSON.parse(ev.data); } catch { return; }
-      if (p.s != null) this.seq = p.s;
-      switch (p.op) {
-        case 10:
-          this.startBeat(Math.min(p.d.heartbeat_interval, 20000));
-          if (resuming) this.send(6, { token, session_id: this.sessionId, seq: this.seq });
-          else this.send(2, { token, intents: INTENTS, properties: { os: "windows", browser: "aio-extension", device: "aio-extension" } });
-          break;
-        case 11: this.acked = true; break;
-        case 1: this.send(1, this.seq); break;
-        case 7: this.close(4000); setTimeout(() => this.ensure(), 500); break;
-        case 9:
-          if (!p.d) { this.sessionId = null; this.resumeUrl = null; this.seq = null; }
-          this.close(4000);
-          setTimeout(() => this.ensure(), 1000 + Math.random() * 4000);
-          break;
-        case 0: this.dispatch(p.t, p.d); break;
-      }
-      if (this.sessionId) {
-        chrome.storage.session.set({ gw: { sessionId: this.sessionId, resumeUrl: this.resumeUrl, seq: this.seq } });
-      }
-    };
-    ws.onclose = (ev) => {
-      if (ws !== this.ws) return;
-      this.ws = null;
-      clearInterval(this.beat);
-      if (FATAL[ev.code]) {
-        this.state = "fatal";
-        this.detail = FATAL[ev.code];
-        addLog("error", FATAL[ev.code], "디스코드");
-        return;
-      }
-      if (ev.code === 4007 || ev.code === 4009) { this.sessionId = null; this.resumeUrl = null; }
-      this.state = "retry";
-      this.detail = `끊김 (${ev.code})`;
-      setTimeout(() => this.ensure(), 5000);
-    };
-  },
-
-  send(op, d) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ op, d }));
-  },
-
-  startBeat(interval) {
-    clearInterval(this.beat);
-    this.acked = true;
-    this.beat = setInterval(() => {
-      if (!this.acked) {
-        addLog("warn", "디스코드가 대답이 없어 다시 붙습니다", "디스코드");
-        this.close(4000);
-        this.ensure();
-        return;
-      }
-      this.acked = false;
-      this.send(1, this.seq);
-    }, interval);
-  },
-
-  dispatch(type, d) {
-    if (type === "READY") {
-      this.sessionId = d.session_id;
-      this.resumeUrl = d.resume_gateway_url;
-      this.state = "on";
-      this.detail = `봇 ${d.user.username} · 서버 ${d.guilds.length}곳`;
-      if (!d.guilds.length) {
-        this.detail += ` — 초대: https://discord.com/oauth2/authorize?client_id=${d.user.id}&scope=bot&permissions=66560`;
-      }
-      addLog("ok", `디스코드에 붙었습니다 (${this.detail})`, "디스코드");
-    } else if (type === "RESUMED") {
-      this.state = "on";
-      addLog("info", "디스코드에 다시 붙었습니다", "디스코드");
-    } else if (type === "MESSAGE_CREATE") {
-      this.onMessage(d);
-    }
-  },
-
-  async onMessage(msg) {
-    const { discord: cfg, enabled } = await getSettings();
-    if (!enabled || !cfg.enabled) return;
-    const channels = (cfg.channels || []).map(String).filter(Boolean);
-    if (channels.length && !channels.includes(msg.channel_id)) return;
-    if (cfg.webhookOnly && !msg.webhook_id) return;
-
-    const text = textOf(msg);
-    const title = ((msg.embeds && msg.embeds[0] && msg.embeds[0].title) || msg.content || "").slice(0, 60);
-    const keywords = (cfg.keywords || []).map((k) => k.toLowerCase()).filter(Boolean);
-    const skips = (cfg.skipKeywords || []).map((k) => k.toLowerCase()).filter(Boolean);
-    if (keywords.length && !keywords.some((k) => text.includes(k))) return;
-    if (skips.some((k) => text.includes(k))) return;
-
-    const url = linkOf(msg);
-    if (!url) {
-      if (!msg.content && !(msg.embeds || []).length) {
-        addLog("warn", "메시지가 비어서 왔습니다. MESSAGE CONTENT INTENT 를 확인해 주세요.", "디스코드");
-      }
-      return;
-    }
-    const last = this.opened.get(url);
-    if (last && Date.now() - last < (cfg.reopenSeconds ?? 60) * 1000) return;
-    this.opened.set(url, Date.now());
-    openLink(url, title);
-  },
-};
+wireMonitor({ getSettings, addLog });
 
 chrome.alarms.create("keepalive", { periodInMinutes: 1 });
-chrome.alarms.onAlarm.addListener(() => discord.ensure());
-chrome.runtime.onStartup.addListener(() => discord.ensure());
+chrome.alarms.onAlarm.addListener(() => monitor.ensure());
+chrome.runtime.onStartup.addListener(() => monitor.ensure());
 chrome.runtime.onInstalled.addListener(async () => {
   await getSettings();
-  discord.ensure();
+  monitor.ensure();
 });
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.settings) {
     settingsCache = null;
-    if (discord.state === "fatal") discord.state = "off";
-    discord.ensure();
+    if (monitor.state === "fatal") monitor.state = "off";
+    monitor.ensure();
   }
 });
-discord.ensure();
+monitor.ensure();

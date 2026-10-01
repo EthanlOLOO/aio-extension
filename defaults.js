@@ -135,14 +135,14 @@ export const DEFAULT_SETTINGS = {
   // 자판이 자바스크립트 클릭을 무시하면 chrome.debugger 로 누를까: "auto" | "always" | "never"
   trustedClick: "auto",
 
-  discord: {
+  // 디스코드 모니터링 — 링크를 "열지" 않고 익스텐션 안에서 알림을 잡아 목록에 남긴다.
+  monitor: {
     enabled: false,
     token: "",
-    channels: [],
-    webhookOnly: true,
-    keywords: [],
-    skipKeywords: [],
-    reopenSeconds: 60,
-    newWindow: true,
+    channels: [],       // 볼 채널 아이디 (비우면 전부)
+    webhookOnly: true,  // 웹훅이 보낸 알림만 잡기
+    keywords: [],       // 이 말이 든 알림만 잡기
+    skipKeywords: [],   // 이 말이 든 알림은 건너뛰기
+    linkOnly: false,    // 켜면 링크가 든 알림만 잡기
   },
 };
