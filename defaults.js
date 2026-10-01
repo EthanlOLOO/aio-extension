@@ -135,14 +135,18 @@ export const DEFAULT_SETTINGS = {
   // 자판이 자바스크립트 클릭을 무시하면 chrome.debugger 로 누를까: "auto" | "always" | "never"
   trustedClick: "auto",
 
-  // 디스코드 모니터링 — 링크를 "열지" 않고 익스텐션 안에서 알림을 잡아 목록에 남긴다.
-  monitor: {
+  // 디스코드 링크 오프너 — 정한 채널에 **웹훅**이 보내고 (링크 또는 @everyone 멘션이 있고)
+  // 제외 키워드가 없는 알림이 오면, 그 메시지의 링크를 새 창으로 자동으로 연다.
+  // 0.4 의 "모니터링(기록만)" 은 없애고 이 하나로 돌아온다.
+  discord: {
     enabled: false,
     token: "",
-    channels: [],       // 볼 채널 아이디 (비우면 전부)
-    webhookOnly: true,  // 웹훅이 보낸 알림만 잡기
-    keywords: [],       // 이 말이 든 알림만 잡기
-    skipKeywords: [],   // 이 말이 든 알림은 건너뛰기
-    linkOnly: false,    // 켜면 링크가 든 알림만 잡기
+    channels: [],        // 볼 채널 아이디 (비우면 봇이 보는 모든 채널)
+    keywords: [],        // 이 말이 든 알림만 열기 (본문·embed 전체에서 찾는다)
+    skipKeywords: [],    // 이 말이 든 알림은 건너뛰기
+    openLink: true,      // 링크가 있으면 링크를 연다
+    everyoneToUrl: "",   // @everyone 멘션이 있는데 링크가 없을 때 열 주소 (비우면 링크 없는 @everyone 알림은 건다)
+    newWindow: true,     // 새 창(window)으로 열까, 아니면 새 탭으로 열까
+    reopenSeconds: 30,   // 같은 주소를 이만큼 지나야 다시 연다 (0 = 매번 열기)
   },
 };

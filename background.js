@@ -4,10 +4,10 @@
  *   - 설정을 들고 있고, 흐름이 몇 번째 단계까지 갔는지 쥐고 있다
  *   - 결제수단별 비밀번호를 내준다 (기본은 브라우저를 끄면 지워지는 session 저장소)
  *   - 페이지가 자바스크립트 클릭을 무시할 때 chrome.debugger 로 진짜 클릭을 낸다
- *   - 디스코드 봇으로 알림을 받아 익스텐션 안에서 모니터링한다 (링크를 열지 않고 목록에 쌓는다)
+ *   - 디스코드 봇으로 알림을 받아 링크를 자동으로 연다 (링크 오프너 · discord-opener.js)
  */
 import { DEFAULT_SETTINGS } from "./defaults.js";
-import { monitor, wireMonitor, clearEvents } from "./monitor.js";
+import { discord, upgradeDiscord, wireDiscord } from "./discord-opener.js";
 
 // ── 설정 ───────────────────────────────────────────────
 
@@ -66,12 +66,10 @@ function upgrade(saved) {
     ...D, ...saved,
     flows, pins,
     trustedClick: saved.trustedClick || (saved.pin && saved.pin.trusted) || D.trustedClick,
-    monitor: { ...D.monitor, ...(saved.monitor || saved.discord) },
+    discord: upgradeDiscord(saved),   // 옛 discord/monitor 설정을 지금 오프너 모양으로 옮긴다
   };
   delete out.pin;
-  delete out.discord;         // 0.4 부터 디스코드 "링크 오프너"는 없다. settings.monitor 만 쓴다.
-  delete out.monitor.newWindow; // 예전 오프너의 "새 창으로 열기"는 모니터링에 쓸모가 없다.
-  delete out.monitor.reopenSeconds;
+  delete out.monitor;        // 0.5 부터 "기록만 하는 모니터링"은 없다. settings.discord(오프너) 만 쓴다.
   return out;
 }
 
@@ -334,10 +332,13 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         }
       case "checkUpdate": return checkUpdate(msg.force);
       case "openTab": return chrome.tabs.create({ url: msg.url });
-      case "monitorStatus": return monitor.status();
-      case "monitorRestart": return monitor.restart();
-      case "monitorEvents": return chrome.storage.session.get("monEvents").then((g) => g.monEvents || []);
-      case "monitorClear": return clearEvents();
+      case "discordStatus": return discord.status();
+      case "discordRestart": return discord.restart();
+      case "testOpen": {
+        // 설정 페이지의 "열기 시험" — 지금 열 판을 실제로 띄워 본다.
+        const cfg = (await getSettings()).discord;
+        return discord.openLink("https://discord.com/channels/@me", cfg);
+      }
     }
     return null;
   })();
@@ -386,25 +387,24 @@ async function checkUpdate(force = false) {
   }
 }
 
-// ── 디스코드 모니터링 ────────────────────────────────────
+// ── 디스코드 링크 오프너 ─────────────────────────────────
 //
-// gateway·기록·팝업 UI 는 monitor.js 에 있다. 링크 오프너(discord-open)는 0.4 에서 없앴고,
-// 잡힌 알림은 익스텐션 안(팝업의 "디스코드 모니터링" 목록)에서만 보여 준다.
+// gateway·필터·열기는 discord-opener.js 에 있다. 여기서는 설정 변경·알람으로 깨우기만 한다.
 
-wireMonitor({ getSettings, addLog });
+wireDiscord({ getSettings, addLog });
 
 chrome.alarms.create("keepalive", { periodInMinutes: 1 });
-chrome.alarms.onAlarm.addListener(() => monitor.ensure());
-chrome.runtime.onStartup.addListener(() => monitor.ensure());
+chrome.alarms.onAlarm.addListener(() => discord.ensure());
+chrome.runtime.onStartup.addListener(() => discord.ensure());
 chrome.runtime.onInstalled.addListener(async () => {
   await getSettings();
-  monitor.ensure();
+  discord.ensure();
 });
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.settings) {
     settingsCache = null;
-    if (monitor.state === "fatal") monitor.state = "off";
-    monitor.ensure();
+    if (discord.state === "fatal") discord.state = "off";
+    discord.ensure();
   }
 });
-monitor.ensure();
+discord.ensure();

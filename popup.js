@@ -18,7 +18,7 @@ async function save() {
 function renderMaster() {
   $("enabled").checked = settings.enabled;
   $("dryRun").checked = settings.dryRun;
-  $("monitorEnabled").checked = settings.monitor.enabled;
+  $("discordEnabled").checked = settings.discord.enabled;
   $("master-note").textContent = settings.enabled
     ? (settings.dryRun ? "켜짐 — 연습 모드" : "켜짐 — 켜 둔 기능이 실제로 누릅니다")
     : "꺼짐 — 아무것도 하지 않습니다";
@@ -98,36 +98,11 @@ function renderSites() {
   }
 }
 
-async function renderMonitor() {
-  const st = await send({ type: "monitorStatus" });
-  const label = { on: "감시 중", connecting: "연결 중…", retry: "다시 연결하는 중", fatal: "멈춤", off: "꺼짐" }[st.state] || st.state;
-  $("monitorState").textContent = `${label}${st.detail ? " — " + st.detail : ""} · 잡은 것 ${st.caught || 0}건`;
-  $("monitorState").className = "note" + (st.state === "on" ? " on" : st.state === "fatal" ? " err" : "");
-}
-
-/** 잡힌 알림 목록 (가장 최근이 맨 위). 링크는 눌러도 이 탭에서 열리지 않게 하지 않고, 복사만 시켜 준다. */
-async function renderMonEvents() {
-  const events = (await send({ type: "monitorEvents" })) || [];
-  const ol = $("monEvents");
-  ol.textContent = "";
-  for (const e of events.slice(-30).reverse()) {
-    const t = el("time", { textContent: new Date(e.at).toTimeString().slice(0, 8) });
-    const head = el("div", {}, t, ` ${e.author}${e.webhook ? " (웹훅)" : ""} · #${e.channelId}`);
-    head.className = "note";
-    const li = el("li", { className: "ok" }, head, el("div", { textContent: e.summary || "(본문 없음)" }));
-    for (const u of e.links || []) {
-      li.append(el("div", {
-        className: "sub",
-        childNodes: [el("a", { href: "#", textContent: u.slice(0, 70), title: u, onclick: (ev) => {
-          ev.preventDefault();
-          navigator.clipboard.writeText(u).then(() => { ev.target.textContent = "복사됨! " + u.slice(0, 60); });
-          return false;
-        } })],
-      }));
-    }
-    ol.append(li);
-  }
-  if (!events.length) ol.append(el("li", { className: "note", textContent: "아직 잡힌 알림이 없습니다" }));
+async function renderDiscord() {
+  const st = await send({ type: "discordStatus" });
+  const label = { on: "연결됨", connecting: "연결 중…", retry: "다시 연결하는 중", fatal: "멈춤", off: "꺼짐" }[st.state] || st.state;
+  $("discordState").textContent = `${label}${st.detail ? " — " + st.detail : ""} · 연 것 ${st.opened || 0}건`;
+  $("discordState").className = "note" + (st.state === "on" ? " on" : st.state === "fatal" ? " err" : "");
 }
 
 async function renderLog() {
@@ -143,18 +118,16 @@ async function renderLog() {
 
 $("enabled").onchange = (e) => { settings.enabled = e.target.checked; save(); };
 $("dryRun").onchange = (e) => { settings.dryRun = e.target.checked; save(); };
-$("monitorEnabled").onchange = async (e) => {
-  settings.monitor.enabled = e.target.checked;
+$("discordEnabled").onchange = async (e) => {
+  settings.discord.enabled = e.target.checked;
   await save();
-  setTimeout(renderMonitor, 1500);
+  setTimeout(renderDiscord, 1500);
 };
-$("monitorReconnect").onclick = async () => { await send({ type: "monitorRestart" }); setTimeout(renderMonitor, 1500); };
-$("clearMonEvents").onclick = async () => { await send({ type: "monitorClear" }); renderMonEvents(); };
+$("discordReconnect").onclick = async () => { await send({ type: "discordRestart" }); setTimeout(renderDiscord, 1500); };
 $("clearLog").onclick = async () => { await send({ type: "clearLog" }); renderLog(); };
 chrome.storage.onChanged.addListener((c, area) => {
   if (area !== "session") return;
   if (c.log) renderLog();
-  if (c.monEvents) renderMonEvents();
 });
 
 /** 새 버전이 있으면 아래에 알려 준다. 수동 설치라 크롬이 알아서 업데이트하지 않는다. */
@@ -174,7 +147,6 @@ async function renderUpdate() {
 settings = await send({ type: "getSettings" });
 renderMaster();
 renderSites();
-renderMonitor();
-renderMonEvents();
+renderDiscord();
 renderLog();
 renderUpdate();
